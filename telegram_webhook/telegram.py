@@ -1,59 +1,65 @@
+"""Telegram API helpers."""
+
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Any, Optional, Dict
+
 import logging
+import mimetypes
+import os
+from typing import Any, Dict, Optional
+from urllib.parse import quote
 
-from utils import SESSION, safe_json
-from config import TELEGRAM_BOT_TOKEN, CHATWOOT_TELEGRAM_INBOX_ID, DEFAULT_TIMEOUT
+from config import TELEGRAM_BOT_TOKEN, FILE_PROXY_PUBLIC_BASE
+from chatwoot import HTTP
 
-logger = logging.getLogger("telegram_webhook")
+logger = logging.getLogger("tg-cw-bridge")
 
 TG_API_BASE = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
-def tg_api(method: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    url = f"{TG_API_BASE}/{method}"
-    r = SESSION.post(url, json=payload, timeout=DEFAULT_TIMEOUT)
-    js = safe_json(r)
-    if not r.ok:
-        logger.warning("Telegram API %s failed: %s", method, js)
-    return js
 
-def tg_send_message(chat_id: int, text: str, reply_to_message_id: Optional[int] = None) -> None:
-    payload = {"chat_id": chat_id, "text": text}
-    if reply_to_message_id:
-        payload["reply_to_message_id"] = reply_to_message_id
-    tg_api("sendMessage", payload)
+async def tg_api(method: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        r = await HTTP.post(f"{TG_API_BASE}/{method}", json=payload)
+        return r.json() if r.content else {}
+    except Exception:
+        logger.exception("tg_api error: %s", method)
+        return {}
 
-@dataclass
-class ParsedUpdate:
-    kind: str                  # "message" | "callback" | "unknown"
-    chat_id: int = 0
-    text: str = ""
-    display_name: str = ""
-    inbox_id: int = CHATWOOT_TELEGRAM_INBOX_ID
-    _callback_id: Optional[str] = None
 
-    def answer_callback(self):
-        if self.kind != "callback" or not self._callback_id:
-            return
-        tg_api("answerCallbackQuery", {"callback_query_id": self._callback_id})
+async def tg_get_file_info(file_id: str) -> Optional[dict]:
+    js = await tg_api("getFile", {"file_id": file_id})
+    return js.get("result") if isinstance(js, dict) else None
 
-def parse_update_basic(upd: Dict[str, Any]) -> ParsedUpdate:
-    # message / edited_message
-    msg = upd.get("message") or upd.get("edited_message")
-    if msg:
-        chat = msg.get("chat", {})
-        chat_id = int(chat.get("id"))
-        from_user = msg.get("from", {}) or {}
-        username = from_user.get("username") or str(chat_id)
-        first_name = from_user.get("first_name") or username
-        text = msg.get("text") or ""
-        return ParsedUpdate(kind="message", chat_id=chat_id, text=text, display_name=first_name)
 
-    # callback_query
-    cq = upd.get("callback_query")
-    if cq:
-        chat_id = int((cq.get("from") or {}).get("id"))
-        return ParsedUpdate(kind="callback", chat_id=chat_id, _callback_id=cq.get("id"))
+async def tg_get_profile_photo_file_id(user_id: int) -> Optional[str]:
+    js = await tg_api("getUserProfilePhotos", {"user_id": user_id, "limit": 1})
+    try:
+        photos = (js or {}).get("result", {}).get("photos") or []
+        if not photos:
+            return None
+        return photos[0][-1].get("file_id")
+    except Exception:
+        return None
 
-    return ParsedUpdate(kind="unknown")
+
+def tg_file_direct_url(file_path: str) -> str:
+    return f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
+
+
+def tgfile_public_url(file_id: str, filename: Optional[str] = None) -> str:
+    if FILE_PROXY_PUBLIC_BASE:
+        q = f"?fn={quote(filename)}" if filename else ""
+        return f"{FILE_PROXY_PUBLIC_BASE}/tgfile/{quote(file_id)}{q}"
+    return ""
+
+
+def guess_image_mime(filename: str, fallback: str = "application/octet-stream") -> str:
+    mime = mimetypes.guess_type(filename or "")[0]
+    if not mime:
+        lower = (filename or "").lower()
+        if lower.endswith((".jpg", ".jpeg")):
+            return "image/jpeg"
+        if lower.endswith(".png"):
+            return "image/png"
+        if lower.endswith(".webp"):
+            return "image/webp"
+    return mime or fallback
