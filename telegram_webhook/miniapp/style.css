@@ -1,0 +1,32 @@
+:root{
+  --bg:#0b0f1a; --card:#0f172a; --muted:#9fb3c8; --fg:#e5e7eb;
+  --self-bg:#10224a; --self-b:#1b3c7a;
+  --other-bg:#121826; --other-b:#273043;
+  --accent:#60a5fa; --line:#15203b;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 Inter,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu}
+.header{position:sticky;top:0;z-index:10;background:linear-gradient(180deg,rgba(11,15,26,.96),rgba(11,15,26,.7));backdrop-filter:blur(6px);border-bottom:1px solid var(--line);padding:12px 12px}
+.hrow{display:flex;align-items:center;gap:10px}
+.hrow h1{margin:0;font-size:18px}
+.badge{padding:2px 8px;border-radius:999px;background:#12203a;color:#bfe1ff;font-size:12px;border:1px solid #1a2a4a}
+.wrap{max-width:860px;margin:0 auto;padding:10px 10px 110px}
+.chat{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.msg{max-width:78%;padding:10px 12px;border-radius:14px;word-wrap:break-word;white-space:pre-wrap}
+.msg.self{margin-left:auto;background:var(--self-bg);border:1px solid var(--self-b)}
+.msg.other{margin-right:auto;background:var(--other-bg);border:1px solid var(--other-b)}
+.msg .meta{color:var(--muted);font-size:11px;margin-top:6px}
+.msg .text{font-size:14px}
+.attach{display:block;margin-top:6px;color:#bfe1ff;text-decoration:none;word-break:break-word}
+.note{color:var(--muted);font-size:12px;margin-top:8px}
+.footer{position:fixed;left:0;right:0;bottom:0;z-index:5;background:var(--bg);border-top:1px solid var(--line);padding:8px 10px}
+.send{display:flex;gap:8px;align-items:center;max-width:860px;margin:0 auto}
+.input{flex:1;background:#0e1730;border:1px solid #1b2a48;color:var(--fg);border-radius:12px;padding:10px 12px;outline:none}
+.input::placeholder{color:#7a8aa7}
+.btn{border:1px solid #2b4c7d;background:#0f1a33;color:#cfe4ff;border-radius:10px;padding:10px 14px;font-weight:700;cursor:pointer}
+.btn--ghost{background:transparent;border-color:#274267;color:#cfe4ff}
+.attachbtn{position:relative;overflow:hidden;min-width:46px;text-align:center}
+.attachbtn input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+.toast{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);background:rgba(16,24,40,.95);color:#e5e7eb;border:1px solid #2b3a5d;border-radius:14px;padding:10px 14px;font-weight:600;max-width:80%;text-align:center}
+@supports (env(safe-area-inset-bottom)){.footer{padding-bottom:calc(8px + env(safe-area-inset-bottom))}.wrap{padding-bottom:calc(110px + env(safe-area-inset-bottom))}}

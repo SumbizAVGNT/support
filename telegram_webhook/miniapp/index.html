@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Поддержка</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <meta name="color-scheme" content="dark light" />
+  <style>
+    :root{
+      --bg:#0c111c; --fg:#e5e7eb; --muted:#9fb3c8; --line:#1a2644;
+      --card:#101726; --card2:#0f1a33;
+      --bubble-self:#10224a; --bubble-self-b:#1b3c7a;
+      --bubble-other:#121826; --bubble-other-b:#273043;
+      --accent:#3b82f6; --accent-2:#26406c; --success:#16a34a; --danger:#ef4444;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;background:var(--bg);color:var(--fg);
+      font:14px/1.5 Inter,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;
+      -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .app{display:flex;flex-direction:column;min-height:100%}
+    .header{
+      position:sticky;top:0;z-index:30;
+      background:linear-gradient(180deg,rgba(12,17,28,.96),rgba(12,17,28,.7));
+      backdrop-filter:blur(6px);
+      border-bottom:1px solid var(--line);
+      padding:10px 12px;display:flex;align-items:center;gap:10px
+    }
+    .title{font-weight:800;letter-spacing:.2px}
+    .badge{
+      margin-left:auto;
+      padding:2px 8px;border-radius:999px;background:#12203a;color:#bfe1ff;font-size:12px;border:1px solid #1a2a4a
+    }
+    .btn{
+      border:1px solid var(--accent-2);background:var(--card2);color:#cfe4ff;
+      border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;touch-action:manipulation;user-select:none
+    }
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+    .iconbtn{width:38px;height:38px;display:grid;place-items:center;padding:0;border-radius:10px}
+    .wrap{flex:1;overflow:auto;padding:12px 10px 100px}
+    .chat{display:flex;flex-direction:column;gap:10px}
+    .row{display:flex;gap:8px;align-items:flex-end}
+    .row.self{justify-content:flex-end}
+    .ava{width:28px;height:28px;border-radius:50%;background:#1f2a44;flex:0 0 28px;display:grid;place-items:center;font-size:12px;color:#9fb3c8;border:1px solid #26365a}
+    .msg{
+      max-width:78%;padding:10px 12px;border-radius:14px;word-wrap:break-word;white-space:pre-wrap;
+      box-shadow:0 1px 0 rgba(0,0,0,.15)
+    }
+    .meta{color:var(--muted);font-size:11px;margin-top:4px}
+    .self .msg{background:var(--bubble-self);border:1px solid var(--bubble-self-b)}
+    .other .msg{background:var(--bubble-other);border:1px solid var(--bubble-other-b)}
+    .attach{display:block;margin-top:6px;color:#bfe1ff;text-decoration:none;word-break:break-word}
+    .typing{color:var(--muted);font-size:12px;margin-left:36px;opacity:.9}
+    .footer{
+      position:fixed;left:0;right:0;bottom:0;z-index:40;background:var(--bg);
+      border-top:1px solid var(--line);padding:8px
+    }
+    .send{display:flex;gap:8px}
+    .input{
+      flex:1;display:flex;gap:8px;align-items:center;
+      background:#0e1730;border:1px solid #1b2a48;border-radius:12px;padding:6px 8px;
+    }
+    .input input[type=text]{
+      flex:1;background:transparent;border:0;outline:0;color:var(--fg);padding:6px 6px;min-width:0
+    }
+    .attachbtn{position:relative;overflow:hidden}
+    .attachbtn input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+    .note{color:var(--muted);font-size:12px;margin-top:8px}
+    .hidden{display:none}
+    .toast{
+      position:fixed;left:50%;bottom:120px;transform:translateX(-50%);
+      background:#162238;color:#dbeafe;border:1px solid #28436d;border-radius:10px;padding:10px 12px;z-index:50;
+      max-width:90%;box-shadow:0 10px 30px rgba(0,0,0,.25);animation:toast .2s ease-out
+    }
+    .toast.err{background:#2a1620;color:#ffe4e6;border-color:#6b2339}
+    @keyframes toast{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
+    /* Debug drawer */
+    .dbg{
+      position:fixed;right:10px;top:62px;z-index:45;background:#0c1429;border:1px solid #1a2644;border-radius:12px;min-width:260px;max-width:90%;
+      box-shadow:0 10px 30px rgba(0,0,0,.3);padding:10px 10px 6px;display:none
+    }
+    .dbg pre{margin:8px 0 0 0;white-space:pre-wrap;word-break:break-all;background:#091122;border:1px solid #1a2644;border-radius:10px;padding:8px;color:#d1e7ff;max-height:40vh;overflow:auto}
+    .pill{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid #1a2a4a;background:#12203a;color:#bfe1ff;margin-right:6px}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="header">
+      <button id="dbgBtn" class="btn iconbtn" title="Отладка" type="button">🛠️</button>
+      <div class="title">Поддержка</div>
+      <span id="status" class="badge">инициализация…</span>
+      <button id="closeBtn" class="btn" type="button">Закрыть</button>
+    </div>
+
+    <div class="wrap" id="scrollRoot">
+      <div id="chat" class="chat"></div>
+      <div id="typing" class="typing hidden">Агент печатает…</div>
+      <div id="hint" class="note hidden"></div>
+    </div>
+
+    <div class="footer">
+      <div class="send">
+        <div class="input">
+          <label class="btn iconbtn attachbtn" title="Прикрепить файл">📎
+            <input id="file" type="file" />
+          </label>
+          <input id="text" type="text" placeholder="Напишите сообщение…" autocomplete="off" />
+        </div>
+        <button id="sendBtn" class="btn" type="button">Отправить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Debug drawer -->
+  <div id="dbg" class="dbg">
+    <div><span class="pill" id="dbgConn">—</span><span class="pill" id="dbgConv">—</span></div>
+    <pre id="dbgLog">Log is empty</pre>
+  </div>
+
+  <script>
+    // ===== Helpers =====
+    const tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
+    const $ = (id) => document.getElementById(id);
+    const chatBox = $('chat'), statusEl = $('status'), hintEl = $('hint');
+    const textEl = $('text'), fileEl = $('file'), sendBtn = $('sendBtn'), closeBtn = $('closeBtn');
+    const typingEl = $('typing'), scrollRoot = $('scrollRoot');
+    const dbgBtn = $('dbgBtn'), dbgBox = $('dbg'), dbgLog = $('dbgLog'), dbgConn = $('dbgConn'), dbgConv = $('dbgConv');
+
+    let token = null, convId = null, lastId = 0, pollingTimer = null, sending = false;
+
+    function nowSec(){ return Math.floor(Date.now()/1000); }
+    function meta(ts){ const d=new Date((Number(ts)||0)*1000); return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }
+    function toast(msg, isErr=false){
+      const t = document.createElement('div');
+      t.className='toast'+(isErr?' err':''); t.textContent=msg;
+      document.body.appendChild(t);
+      setTimeout(()=>{ t.remove(); }, 3000);
+    }
+    function logDbg(obj){
+      try {
+        const before = (dbgLog.textContent==='Log is empty') ? '' : (dbgLog.textContent+'\n\n');
+        dbgLog.textContent = before + JSON.stringify(obj, null, 2);
+      } catch { /* noop */ }
+    }
+    function setStatus(text){ statusEl.textContent = text; }
+    function showHint(text){ hintEl.textContent = text; hintEl.classList.toggle('hidden', !text); }
+    function showTyping(show){ typingEl.classList.toggle('hidden', !show); }
+
+    function avatar(letter){
+      const a=document.createElement('div'); a.className='ava'; a.textContent=letter; return a;
+    }
+    function bubble({from,text,ts,attachments}){
+      const row=document.createElement('div');
+      row.className='row '+(from==='user'?'self other':'other');
+      const whoUser = (from==='user');
+      const letter = whoUser?'В':'А'; // Вы / Агент
+      const msgWrap=document.createElement('div'); msgWrap.className='msg';
+      if (text) { const d=document.createElement('div'); d.textContent=text; msgWrap.appendChild(d); }
+      (attachments||[]).forEach(a=>{
+        const link=document.createElement('a'); link.className='attach'; link.textContent='📎 '+(a.name||a.url); link.href=a.url; link.target='_blank';
+        msgWrap.appendChild(link);
+      });
+      const metaEl=document.createElement('div'); metaEl.className='meta'; metaEl.textContent=(whoUser?'Вы':'Агент')+' • '+meta(ts||nowSec()); msgWrap.appendChild(metaEl);
+      if (!whoUser) row.appendChild(avatar(letter));
+      row.appendChild(msgWrap);
+      if (whoUser) row.appendChild(avatar(letter));
+      msgWrap.parentElement?.classList?.add(whoUser?'self':'other');
+      return row;
+    }
+    function addMsg(m){
+      const node=bubble(m);
+      chatBox.appendChild(node);
+      // автоскролл
+      requestAnimationFrame(()=>{ scrollRoot.scrollTo({ top: scrollRoot.scrollHeight, behavior:'smooth' }); });
+    }
+
+    async function api(path, {method='GET', headers={}, body=null}={}){
+      const url = path; // абсолютный путь к серверу (та же origin)
+      const opts = { method, headers, body };
+      const r = await fetch(url, opts);
+      let js = null;
+      try { js = await r.json(); } catch { js = {}; }
+      logDbg({request:{url,method}, status:r.status, json:js});
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText} @ ${url} :: ${JSON.stringify(js)}`);
+      return js;
+    }
+
+    // ===== Auth =====
+    async function auth(){
+      if (tg) {
+        try { tg.expand(); tg.ready(); } catch {}
+        // применяем тему
+        const tp = tg.themeParams||{};
+        if (tp.bg_color) document.documentElement.style.setProperty('--bg', tp.bg_color);
+        if (tp.text_color) document.documentElement.style.setProperty('--fg', tp.text_color);
+        if (tp.hint_color) document.documentElement.style.setProperty('--muted', tp.hint_color);
+      }
+      if (!tg || !tg.initData) {
+        setStatus('нужен Telegram');
+        showHint('Эта страница — Telegram Mini App. Откройте её из бота по кнопке WebApp, чтобы авторизоваться.');
+        toast('Нет initData — откройте из Telegram WebApp', true);
+        return false;
+      }
+      setStatus('авторизация…');
+      try{
+        const js = await api('/api/webapp/auth', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ init_data: tg.initData })
+        });
+        if (!js || !js.ok) throw new Error('auth failed');
+        token = js.token; convId = js.conversation_id;
+        dbgConn.textContent = 'token: '+(token?.slice(0,8)||'—')+'…';
+        dbgConv.textContent = 'conv: #'+convId;
+        setStatus('Тикет #'+convId);
+        return true;
+      }catch(e){
+        toast('Ошибка авторизации: '+String(e.message||e), true);
+        setStatus('ошибка авторизации');
+        return false;
+      }
+    }
+
+    // ===== History & Polling =====
+    async function loadHistory(full=false){
+      if (!token) return;
+      const q = lastId ? ('?after='+encodeURIComponent(lastId)) : '';
+      try{
+        const js = await api('/api/webapp/history'+q, {
+          headers:{'X-WebApp-Session': token}
+        });
+        if (full) chatBox.innerHTML='';
+        const msgs = js.messages||[];
+        if (msgs.length){
+          msgs.forEach(addMsg);
+          lastId = msgs[msgs.length-1].id;
+        }
+      }catch(e){
+        toast('Не удалось загрузить историю: '+String(e.message||e), true);
+      }
+    }
+    function startPolling(){
+      stopPolling();
+      pollingTimer = setInterval(async ()=>{
+        await loadHistory(false);
+        // псевдо-индикатор набора текста (как косметика)
+        showTyping(Math.random()<0.08);
+      }, 2000);
+    }
+    function stopPolling(){ if (pollingTimer) { clearInterval(pollingTimer); pollingTimer=null; } }
+
+    // ===== Send =====
+    async function sendText(){
+      const text = (textEl.value||'').trim();
+      if (!text || !token || sending) return;
+      sending = true; sendBtn.disabled = true;
+      try{
+        const js = await api('/api/webapp/send', {
+          method:'POST',
+          headers:{'Content-Type':'application/json','X-WebApp-Session':token},
+          body: JSON.stringify({text})
+        });
+        if (js && js.ok){
+          // локальное эхо
+          addMsg({from:'user', text, ts:nowSec(), attachments:[]});
+          textEl.value='';
+          setTimeout(loadHistory, 350);
+        }
+      }catch(e){
+        toast('Отправка не удалась: '+String(e.message||e), true);
+      }finally{
+        sending = false; sendBtn.disabled = false;
+      }
+    }
+
+    async function sendFile(){
+      const f = fileEl.files[0];
+      if (!f || !token || sending) return;
+      sending = true; sendBtn.disabled = true;
+      try{
+        const fd = new FormData();
+        fd.append('file', f);
+        const maybeText = (textEl.value||'').trim();
+        if (maybeText) fd.append('text', maybeText);
+        const js = await api('/api/webapp/send_file', {
+          method:'POST',
+          headers:{'X-WebApp-Session':token},
+          body: fd
+        });
+        if (js && js.ok){
+          addMsg({from:'user', text: maybeText||'', ts:nowSec(), attachments:[{name:f.name,url:'#'}]});
+          textEl.value=''; fileEl.value='';
+          setTimeout(loadHistory, 500);
+        }
+      }catch(e){
+        toast('Файл не отправился: '+String(e.message||e), true);
+      }finally{
+        sending = false; sendBtn.disabled = false;
+      }
+    }
+
+    async function closeTicket(){
+      if (!token) return;
+      if (!confirm('Закрыть тикет?')) return;
+      try{
+        const js = await api('/api/webapp/close', { method:'POST', headers:{'X-WebApp-Session':token} });
+        if (js && js.ok){
+          setStatus('Закрыт');
+          showHint('Тикет закрыт. Откройте новый из меню бота.');
+          stopPolling();
+        }
+      }catch(e){
+        toast('Не удалось закрыть: '+String(e.message||e), true);
+      }
+    }
+
+    // ===== Events =====
+    sendBtn.addEventListener('click', ()=> {
+      if (fileEl.files.length) sendFile(); else sendText();
+    });
+    closeBtn.addEventListener('click', closeTicket);
+    textEl.addEventListener('keydown', (e)=>{ if (e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendText(); }});
+    fileEl.addEventListener('change', ()=>{ /* можно подсветить выбранное имя */ });
+
+    // Debug drawer
+    dbgBtn.addEventListener('click', ()=>{
+      dbgBox.style.display = (dbgBox.style.display==='block') ? 'none' : 'block';
+    });
+
+    // ===== Boot =====
+    (async function boot(){
+      const ok = await auth();
+      if (!ok) return;
+      await loadHistory(true);
+      startPolling();
+    })();
+  </script>
+
+  <!--
+  Если вдруг хочешь встроить Chatwoot-виджет поверх (НЕ тот же разговор!),
+  раскомментируй и подставь свои значения.
+
+  <script>
+    (function(d,t) {
+      var BASE_URL="https://chatwoot.teighto.net";
+      var g=d.createElement(t),s=d.getElementsByTagName(t)[0];
+      g.src=BASE_URL+"/packs/js/sdk.js"; g.async = true; s.parentNode.insertBefore(g,s);
+      g.onload=function(){ window.chatwootSDK.run({ websiteToken:'NZ9sidxuTYbyNfyntd6hNLEa', baseUrl: BASE_URL }); };
+    })(document,"script");
+  </script>
+  -->
+</body>
+</html>

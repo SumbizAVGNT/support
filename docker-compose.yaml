@@ -1,0 +1,126 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DATABASE:-chatwoot}
+      POSTGRES_USER: ${POSTGRES_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - chatwoot_net
+
+  redis:
+    image: redis:alpine
+    restart: always
+    command: ["sh", "-c", "redis-server --requirepass \"$REDIS_PASSWORD\""]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme}
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$REDIS_PASSWORD\" ping | grep PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    env_file: .env
+    volumes:
+      - redis_data:/data
+    networks:
+      - chatwoot_net
+
+  rails:
+    image: chatwoot/chatwoot:latest
+    restart: always
+    depends_on:
+      - postgres
+      - redis
+    env_file: .env
+    ports:
+      - "5001:5001"          # Chatwoot Rails слушает на 5001
+    volumes:
+      - storage_data:/app/storage
+    entrypoint: docker/entrypoints/rails.sh
+    command: ["bundle", "exec", "rails", "s", "-p", "5001", "-b", "0.0.0.0"]
+    networks:
+      - chatwoot_net
+      - npm_default
+
+  sidekiq:
+    image: chatwoot/chatwoot:latest
+    restart: always
+    depends_on:
+      - postgres
+      - redis
+    env_file: .env
+    volumes:
+      - storage_data:/app/storage
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+    networks:
+      - chatwoot_net
+
+  webhook:
+    build:
+      context: ./discord_webhook
+    container_name: discord_webhook
+    restart: unless-stopped
+    depends_on:
+      - rails
+    env_file:
+      - .env
+      - ./discord_webhook/.env
+
+    volumes:
+      - ./discord_webhook:/app
+    ports:
+      - "5500:5500"
+    command: ["python3", "webhook_server.py"]
+    networks:
+      - chatwoot_net
+      - npm_default
+
+  telegram_webhook:
+    build:
+      context: ./telegram_webhook
+    container_name: telegram_webhook
+    restart: unless-stopped
+    depends_on:
+      - rails
+    # Берём переменные как из корневого .env, так и из локального конфигурационного
+    env_file:
+      - .env
+      - ./telegram_webhook/.env
+    environment:
+      - PYTHONUTF8=1
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
+      - PYTHONUNBUFFERED=1
+      - STATE_DB=/app/data/state.db
+    ports:
+      - "5501:5501"
+    # приложение — FastAPI + aiogram, работаем через uvicorn worker
+    command: ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "-c", "gunicorn.conf.py", "webhook_server:app"]
+    networks:
+      - chatwoot_net
+      - npm_default
+    volumes:
+      - ./telegram_webhook:/app
+      - telegram_state:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5501/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+  storage_data:
+  telegram_state:
+
+networks:
+  chatwoot_net:
+    driver: bridge
+  npm_default:
+    external: true

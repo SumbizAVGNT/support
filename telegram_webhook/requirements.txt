@@ -1,0 +1,6 @@
+fastapi==0.115.2
+uvicorn[standard]==0.30.6
+gunicorn==21.2.0
+httpx==0.27.2
+aiogram==3.12.0
+python-multipart==0.0.9
