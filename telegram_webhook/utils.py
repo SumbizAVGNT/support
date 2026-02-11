@@ -1,16 +1,12 @@
+"""Shared utility functions."""
+
 import logging
-import requests
-from config import DEFAULT_TIMEOUT, USER_AGENT
 
-logger = logging.getLogger("telegram_webhook")
+logger = logging.getLogger("tg-cw-bridge")
 
-SESSION = requests.Session()
-SESSION.headers["User-Agent"] = USER_AGENT
-# timeout задаём на каждом запросе явно
 
-def safe_json(resp: requests.Response):
+def safe_json(resp) -> dict:
     try:
         return resp.json()
     except Exception:
-        logger.warning("Non-JSON response: %s", (resp.text or "")[:500])
         return {}

@@ -1,9 +1,10 @@
+"""LRU-based deduplication set."""
+
 from collections import OrderedDict
-from typing import Optional
+
 
 class LRUSet:
-    """Simple LRU set for deduplication of string keys."""
-    def __init__(self, capacity: int = 2048):
+    def __init__(self, capacity: int = 4096):
         self.capacity = capacity
         self._data: OrderedDict[str, None] = OrderedDict()
 
@@ -16,5 +17,6 @@ class LRUSet:
         if len(self._data) > self.capacity:
             self._data.popitem(last=False)
         return True
+
 
 DEDUP = LRUSet()
