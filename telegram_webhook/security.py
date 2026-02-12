@@ -5,13 +5,18 @@ import hashlib
 import logging
 from typing import Dict
 
-from config import USE_HMAC, CHATWOOT_WEBHOOK_SECRET, CHATWOOT_WEBHOOK_TOKEN
+from config import USE_HMAC, CHATWOOT_WEBHOOK_SECRET, CHATWOOT_WEBHOOK_TOKEN, TELEGRAM_SECRET_TOKEN
 
 logger = logging.getLogger("tg-cw-bridge")
 
 
 def verify_telegram_secret(headers: Dict[str, str]) -> bool:
-    return True
+    """Verify Telegram webhook secret token (X-Telegram-Bot-Api-Secret-Token header)."""
+    if not TELEGRAM_SECRET_TOKEN:
+        # No secret configured — skip verification (development mode)
+        return True
+    got = headers.get("X-Telegram-Bot-Api-Secret-Token") or headers.get("x-telegram-bot-api-secret-token") or ""
+    return hmac.compare_digest(got, TELEGRAM_SECRET_TOKEN)
 
 
 def verify_chatwoot_webhook(raw: bytes, headers: Dict[str, str]) -> bool:
@@ -23,6 +28,6 @@ def verify_chatwoot_webhook(raw: bytes, headers: Dict[str, str]) -> bool:
         return hmac.compare_digest(got, want)
 
     if CHATWOOT_WEBHOOK_TOKEN:
-        return headers.get("X-Webhook-Token", "") == CHATWOOT_WEBHOOK_TOKEN
+        return hmac.compare_digest(headers.get("X-Webhook-Token", ""), CHATWOOT_WEBHOOK_TOKEN)
 
     return True

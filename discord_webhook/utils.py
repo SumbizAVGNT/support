@@ -20,6 +20,7 @@ load_dotenv()
 logger = logging.getLogger("discord_webhook")
 
 MAX_FILES_PER_MESSAGE = 10
+MAX_FILE_SIZE = int(os.getenv("MAX_ATTACHMENT_SIZE_MB", "50")) * 1024 * 1024
 
 # Reusable connector for aiohttp sessions
 _connector: Optional[aiohttp.TCPConnector] = None
@@ -131,6 +132,9 @@ async def _try_fetch_file(url: str, filename: Optional[str] = None) -> Optional[
                 data = await resp.read()
                 if not data:
                     return None
+                if len(data) > MAX_FILE_SIZE:
+                    logger.warning("[fetch_file] file too large (%d bytes) url=%s", len(data), url)
+                    return None
                 fname = filename or os.path.basename(url.split("?")[0]) or "file"
                 if "." not in fname:
                     ctype = (resp.headers.get("Content-Type") or "").split(";")[0].strip()
@@ -229,6 +233,9 @@ async def send_discord_message(
                                 logger.error("Attachment download failed after retries: %s", dl_err)
 
                     if not data:
+                        continue
+                    if len(data) > MAX_FILE_SIZE:
+                        logger.warning("[send_discord_message] attachment too large (%d bytes), skipped: %s", len(data), url)
                         continue
                     if "." not in filename:
                         ctype = (resp_headers.get("Content-Type") or "").split(";")[0].strip()
