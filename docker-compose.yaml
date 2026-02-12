@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -116,7 +114,7 @@ services:
       retries: 5
 
   autogitpuller:
-    image: python:3.12-slim
+    image: docker:cli
     container_name: autogitpuller
     restart: unless-stopped
     working_dir: /repo
@@ -126,7 +124,7 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        apt-get update -qq && apt-get install -y -qq git curl > /dev/null 2>&1
+        apk add --no-cache git docker-compose > /dev/null 2>&1
         echo "[autogitpuller] started, interval=$${GIT_PULL_INTERVAL:-120}s, branch=$${GIT_BRANCH:-main}"
         cd /repo
         while true; do
@@ -137,10 +135,11 @@ services:
           git reset --hard origin/$${GIT_BRANCH:-main} 2>/dev/null
           AFTER=$$(git rev-parse HEAD 2>/dev/null || echo "none")
           if [ "$$BEFORE" != "$$AFTER" ]; then
-            echo "[autogitpuller] new commit detected: $$BEFORE -> $$AFTER"
-            echo "[autogitpuller] signaling containers to restart..."
+            echo "[autogitpuller] new commit $$BEFORE -> $$AFTER"
+            echo "[autogitpuller] rebuilding and restarting services..."
+            docker compose up --build -d webhook telegram_webhook 2>&1
+            echo "[autogitpuller] done, services restarted"
             date > /repo/.last_git_pull
-            echo "[autogitpuller] done. Containers with mounted volumes will pick up changes on restart."
           else
             echo "[autogitpuller] no changes"
           fi
