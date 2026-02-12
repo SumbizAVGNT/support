@@ -1,3 +1,4 @@
+setuptools>=75.0.0
 nextcord==2.6.0
 aiohttp==3.12.6
 Flask==3.1.1
