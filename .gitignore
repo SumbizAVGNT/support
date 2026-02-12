@@ -11,6 +11,11 @@ __pycache__/
 # Docker
 .last_git_pull
 
+# Environment files with secrets
+.env
+discord_webhook/.env
+telegram_webhook/.env
+
 # IDE
 .idea/
 .vscode/
