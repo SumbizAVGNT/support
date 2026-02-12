@@ -1,3 +1,4 @@
+import asyncio
 import os
 import io
 import mimetypes
@@ -74,16 +75,28 @@ async def send_chatwoot_message(
                         attachment.get("content_type") if isinstance(attachment, dict) else None
                     ) or mimetypes.guess_type(filename or "")[0] or "application/octet-stream"
 
-                    async with session.get(attachment_url) as resp:
-                        if resp.status == 200:
-                            file_data = await resp.read()
-                            if file_data:
-                                form.add_field(
-                                    "attachments[]",
-                                    file_data,
-                                    filename=filename,
-                                    content_type=content_type,
-                                )
+                    file_data = None
+                    for attempt in range(3):
+                        try:
+                            async with session.get(attachment_url) as resp:
+                                if resp.status == 200:
+                                    file_data = await resp.read()
+                                    break
+                                elif resp.status == 404 and attempt < 2:
+                                    await asyncio.sleep(2 ** attempt)
+                                    continue
+                                else:
+                                    break
+                        except Exception:
+                            if attempt < 2:
+                                await asyncio.sleep(2 ** attempt)
+                    if file_data:
+                        form.add_field(
+                            "attachments[]",
+                            file_data,
+                            filename=filename,
+                            content_type=content_type,
+                        )
 
             async with session.post(url, data=form, headers=headers) as resp:
                 if 200 <= resp.status < 300:
@@ -181,7 +194,7 @@ async def send_discord_message(
 
         # Process attachments
         if attachments:
-            timeout = aiohttp.ClientTimeout(total=15)
+            timeout = aiohttp.ClientTimeout(total=30)
             async with aiohttp.ClientSession(connector=_get_connector(), connector_owner=False, timeout=timeout) as session:
                 for att in attachments:
                     url = att.get("url") or att.get("file_url")
@@ -191,21 +204,41 @@ async def send_discord_message(
                     ctype_att = (att.get("type") or att.get("content_type") or "").split(";")[0].strip()
                     is_image = _guess_is_image(filename, url, ctype_att)
 
-                    async with session.get(url) as resp:
-                        if resp.status != 200:
-                            continue
-                        data = await resp.read()
-                        if not data:
-                            continue
-                        if "." not in filename:
-                            ctype = (resp.headers.get("Content-Type") or "").split(";")[0].strip()
-                            guessed_ext = mimetypes.guess_extension(ctype) or ".bin"
-                            filename = filename + guessed_ext
-                        file_obj = nextcord.File(io.BytesIO(data), filename=filename)
-                        if is_image and image_for_embed is None:
-                            image_for_embed = file_obj
-                        else:
-                            other_files.append(file_obj)
+                    # Retry with exponential backoff for 404s (ActiveStorage race condition)
+                    data = None
+                    resp_headers = {}
+                    for attempt in range(4):
+                        try:
+                            async with session.get(url) as resp:
+                                if resp.status == 404 and attempt < 3:
+                                    wait = 2 ** attempt
+                                    logger.warning("Attachment 404, retry %d in %ds: %s", attempt + 1, wait, url)
+                                    await asyncio.sleep(wait)
+                                    continue
+                                if resp.status != 200:
+                                    break
+                                data = await resp.read()
+                                resp_headers = resp.headers
+                                break
+                        except Exception as dl_err:
+                            if attempt < 3:
+                                wait = 2 ** attempt
+                                logger.warning("Attachment download error (attempt %d), retry in %ds: %s", attempt + 1, wait, dl_err)
+                                await asyncio.sleep(wait)
+                            else:
+                                logger.error("Attachment download failed after retries: %s", dl_err)
+
+                    if not data:
+                        continue
+                    if "." not in filename:
+                        ctype = (resp_headers.get("Content-Type") or "").split(";")[0].strip()
+                        guessed_ext = mimetypes.guess_extension(ctype) or ".bin"
+                        filename = filename + guessed_ext
+                    file_obj = nextcord.File(io.BytesIO(data), filename=filename)
+                    if is_image and image_for_embed is None:
+                        image_for_embed = file_obj
+                    else:
+                        other_files.append(file_obj)
 
         if image_for_embed:
             essential_files.append(image_for_embed)
