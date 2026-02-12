@@ -28,12 +28,54 @@ services:
     networks:
       - chatwoot_net
 
+  minio:
+    image: minio/minio:latest
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_BUCKET_ACCESS_KEY_ID:-chatwoot}
+      MINIO_ROOT_PASSWORD: ${S3_BUCKET_SECRET_ACCESS_KEY:-chatwoot_s3_secret}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - chatwoot_net
+      - npm_default
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD}
+        mc mb --ignore-existing local/$${BUCKET_NAME}
+        mc anonymous set download local/$${BUCKET_NAME}
+        echo "[minio-init] bucket '$${BUCKET_NAME}' ready with public-read policy"
+    environment:
+      MINIO_ROOT_USER: ${S3_BUCKET_ACCESS_KEY_ID:-chatwoot}
+      MINIO_ROOT_PASSWORD: ${S3_BUCKET_SECRET_ACCESS_KEY:-chatwoot_s3_secret}
+      BUCKET_NAME: ${S3_BUCKET_NAME:-chatwoot}
+    networks:
+      - chatwoot_net
+    restart: "no"
+
   rails:
     image: chatwoot/chatwoot:latest
     restart: always
     depends_on:
       - postgres
       - redis
+      - minio
     env_file: .env
     ports:
       - "5001:5001"
@@ -51,6 +93,7 @@ services:
     depends_on:
       - postgres
       - redis
+      - minio
     env_file: .env
     volumes:
       - storage_data:/app/storage
@@ -154,6 +197,7 @@ volumes:
   redis_data:
   storage_data:
   telegram_state:
+  minio_data:
 
 networks:
   chatwoot_net:
