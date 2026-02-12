@@ -296,20 +296,67 @@ def _is_agent_outgoing(evt: Dict[str, Any]) -> bool:
     return False
 
 
+async def _download_chatwoot_file(url: str, max_retries: int = 4) -> Tuple[bytes, str]:
+    """Download a file from Chatwoot with retry + exponential backoff."""
+    import asyncio
+    last_exc: Optional[Exception] = None
+    for attempt in range(max_retries):
+        try:
+            resp = await cw.HTTP.get(url, follow_redirects=True)
+            if resp.status_code == 404 and attempt < max_retries - 1:
+                wait = 2 ** attempt
+                logger.warning("Chatwoot file 404, retry %d in %ds: %s", attempt + 1, wait, url)
+                await asyncio.sleep(wait)
+                continue
+            resp.raise_for_status()
+            ct = resp.headers.get("content-type", "application/octet-stream")
+            return resp.content, ct
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_retries - 1:
+                wait = 2 ** attempt
+                logger.warning("Chatwoot file download error (attempt %d), retry in %ds: %s", attempt + 1, wait, exc)
+                await asyncio.sleep(wait)
+            else:
+                raise
+    raise last_exc or RuntimeError("download failed")
+
+
 async def _send_attachment_to_telegram(chat_id: int, att: dict, caption: Optional[str] = None, with_caption: bool = False):
     url = att.get("data_url") or att.get("download_url") or att.get("file_url") or ""
     if not url:
         return
     ct = (att.get("file_type") or att.get("content_type") or "").lower()
-    payload = {"chat_id": chat_id}
+
+    # Download the file first (Chatwoot ActiveStorage URLs require following redirects
+    # and may 404 briefly due to race conditions)
+    try:
+        file_data, content_type = await _download_chatwoot_file(url)
+    except Exception:
+        logger.exception("Failed to download attachment from Chatwoot: %s", url)
+        return
+
+    filename = os.path.basename(url.split("?")[0].split("/")[-1]) or "file"
+
+    data = {"chat_id": str(chat_id)}
     if with_caption and caption:
-        payload["caption"] = caption
+        data["caption"] = caption
+
     if "image" in ct:
-        payload["photo"] = url
-        await tg_api("sendPhoto", payload)
+        field_name = "photo"
+        method = "sendPhoto"
     else:
-        payload["document"] = url
-        await tg_api("sendDocument", payload)
+        field_name = "document"
+        method = "sendDocument"
+
+    from telegram import TG_API_BASE
+    files = {field_name: (filename, file_data, content_type)}
+    try:
+        r = await cw.HTTP.post(f"{TG_API_BASE}/{method}", data=data, files=files)
+        if r.status_code != 200:
+            logger.error("Telegram %s failed %d: %s", method, r.status_code, r.text[:500])
+    except Exception:
+        logger.exception("Telegram upload %s failed", method)
 
 
 def _conv_id_from_event(evt: Dict[str, Any]) -> Optional[int]:

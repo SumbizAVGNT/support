@@ -292,10 +292,23 @@ def proxy_file():
     try:
         public_url = _normalize_to_public(raw_url)
         upstream_url = _rewrite_public_to_internal(public_url)
-        response = _http_session.get(upstream_url, stream=True, timeout=30, headers=_upstream_headers())
 
-        if response.status_code >= 400:
-            return jsonify({"error": f"upstream {response.status_code}"}), 502
+        # Retry with exponential backoff for 404s (ActiveStorage race condition)
+        max_retries = 4
+        last_status = None
+        response = None
+        for attempt in range(max_retries):
+            response = _http_session.get(upstream_url, stream=True, timeout=30, headers=_upstream_headers())
+            last_status = response.status_code
+            if last_status == 404 and attempt < max_retries - 1:
+                wait = 2 ** attempt
+                logger.warning("Proxy file 404, retry %d in %ds: %s", attempt + 1, wait, upstream_url)
+                time.sleep(wait)
+                continue
+            break
+
+        if response is None or response.status_code >= 400:
+            return jsonify({"error": f"upstream {last_status}"}), 502
 
         body = response.content
         if not body:
