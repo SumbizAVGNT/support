@@ -69,7 +69,8 @@ def _json_log(ev: str, **fields):
 # Flask
 # ---------------------------------------------------------------------------- #
 app = Flask(__name__)
-CORS(app)
+_cors_origins = [o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "*").split(",") if o.strip()]
+CORS(app, origins=_cors_origins)
 
 # ---------------------------------------------------------------------------- #
 # Config from env
@@ -119,8 +120,8 @@ def _after_request(resp: Response):
         if logger.isEnabledFor(logging.DEBUG):
             _json_log("http_out", rid=getattr(g, "_rid", "-"), status=resp.status_code, duration_ms=dur_ms)
         resp.headers["X-Request-Id"] = getattr(g, "_rid", "-")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("after_request error: %s", e)
     return resp
 
 
@@ -143,7 +144,7 @@ def _check_admin_auth() -> bool:
     if not ADMIN_TOKEN:
         return False
     auth = request.headers.get("Authorization", "")
-    return auth == f"Bearer {ADMIN_TOKEN}"
+    return hmac.compare_digest(auth, f"Bearer {ADMIN_TOKEN}")
 
 
 # ---------------------------------------------------------------------------- #
@@ -469,10 +470,11 @@ def webhook():
             discord_user_id = session[1]
             attachments = extract_attachments(data.get("attachments"))
 
-            asyncio.run_coroutine_threadsafe(
+            future = asyncio.run_coroutine_threadsafe(
                 fetch_and_send(int(discord_user_id), content, attachments, agent_name, avatar_dl, avatar_ext),
                 bot.loop,
             )
+            future.add_done_callback(lambda f: logger.error("fetch_and_send failed: %s", f.exception()) if f.exception() else None)
             return jsonify({"status": "forwarded"}), 200
 
         elif event == "conversation_updated":
@@ -487,10 +489,11 @@ def webhook():
                 if session:
                     discord_user_id = session[1]
                     if close_session(conversation_id):
-                        asyncio.run_coroutine_threadsafe(
+                        future = asyncio.run_coroutine_threadsafe(
                             notify_user_about_closed_ticket(int(discord_user_id), conversation_id),
                             bot.loop,
                         )
+                        future.add_done_callback(lambda f: logger.error("close notify failed: %s", f.exception()) if f.exception() else None)
                         return jsonify({"status": "closed"}), 200
                 return jsonify({"status": "no session"}), 200
 
@@ -503,6 +506,9 @@ def webhook():
 # ---------------------------------------------------------------------------- #
 # Admin
 # ---------------------------------------------------------------------------- #
+_ALLOWED_TABLES = frozenset({"processed_messages", "sessions", "ticket_history"})
+
+
 @app.route("/admin/clear_db", methods=["POST"])
 def clear_database():
     if not _check_admin_auth():
@@ -510,9 +516,8 @@ def clear_database():
     try:
         with db_connection() as conn:
             cur = conn.cursor()
-            tables = ["processed_messages", "sessions", "ticket_history"]
-            for table in tables:
-                cur.execute(f"DELETE FROM {table}")
+            for table in _ALLOWED_TABLES:
+                cur.execute("DELETE FROM " + table)  # table names from whitelist only
             conn.commit()
         return jsonify({"status": "success", "message": "Database cleared"})
     except Exception as e:
@@ -526,10 +531,9 @@ def db_status():
     try:
         with db_connection() as conn:
             cur = conn.cursor()
-            tables = ["sessions", "processed_messages", "ticket_history"]
             status = {}
-            for table in tables:
-                cur.execute(f"SELECT COUNT(*) FROM {table}")
+            for table in _ALLOWED_TABLES:
+                cur.execute("SELECT COUNT(*) FROM " + table)  # table names from whitelist only
                 status[table] = cur.fetchone()[0]
         return jsonify({"status": "success", "database": DATABASE_NAME, "table_counts": status})
     except Exception as e:
@@ -663,7 +667,7 @@ def _periodic_cleanup():
         try:
             cleanup_old_messages(days=7)
         except Exception:
-            pass
+            logger.exception("periodic cleanup failed")
 
 
 # ---------------------------------------------------------------------------- #
@@ -679,4 +683,4 @@ if __name__ == "__main__":
     cleanup_thread.start()
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    bot.run(os.getenv("DISCORD_BOT_TOKEN"))
+    bot.run(os.getenv("DISCORD_BOT_TOKEN", "").strip())

@@ -29,7 +29,8 @@ from aiogram.types import (
 
 from config import (
     APP_HOST, APP_PORT, LOG_LEVEL, TELEGRAM_BOT_TOKEN,
-    TELEGRAM_WEBHOOK_PUBLIC_URL, TELEGRAM_ALLOWED_UPDATES,
+    TELEGRAM_SECRET_TOKEN, TELEGRAM_WEBHOOK_PUBLIC_URL,
+    TELEGRAM_ALLOWED_UPDATES,
     CHATWOOT_INBOX_ID, AGENT_USER, AGENT_PASS,
     FILE_PROXY_PUBLIC_BASE,
 )
@@ -83,8 +84,8 @@ def sess(chat_id: int) -> Dict[str, Any]:
     if p.get("conversation_id"):
         try:
             CONV2CHAT[int(p["conversation_id"])] = int(chat_id)
-        except Exception:
-            pass
+        except (TypeError, ValueError) as e:
+            logger.warning("sess: invalid conversation_id for chat %s: %s", chat_id, e)
     SESS[chat_id] = {
         "nickname": p.get("nickname"),
         "awaiting_nickname": False,
@@ -563,7 +564,8 @@ async def _startup():
         target = f"{TELEGRAM_WEBHOOK_PUBLIC_URL}/telegram/webhook"
         if TELEGRAM_WEBHOOK_PUBLIC_URL and url != target:
             await BOT.set_webhook(
-                url=target, secret_token=None,
+                url=target,
+                secret_token=TELEGRAM_SECRET_TOKEN or None,
                 allowed_updates=TELEGRAM_ALLOWED_UPDATES or None,
                 drop_pending_updates=False, max_connections=40,
             )
@@ -628,7 +630,7 @@ async def chatwoot_webhook(request: Request):
         elif enc in ("deflate", "zlib"):
             raw = zlib.decompress(raw)
     except Exception:
-        pass
+        logger.warning("Failed to decompress %s body, using raw", enc)
 
     try:
         evt = json.loads(raw.decode("utf-8")) if raw else {}

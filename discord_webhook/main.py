@@ -10,6 +10,10 @@ load_dotenv()
 
 logger = logging.getLogger("discord_webhook")
 
+DISCORD_BOT_TOKEN = (os.getenv("DISCORD_BOT_TOKEN") or "").strip()
+if not DISCORD_BOT_TOKEN:
+    raise RuntimeError("DISCORD_BOT_TOKEN is required")
+
 init_db()
 
 intents = nextcord.Intents.default()
@@ -90,4 +94,4 @@ async def ticket_status(interaction: nextcord.Interaction):
 
 
 if __name__ == "__main__":
-    bot.run(os.getenv("DISCORD_BOT_TOKEN"))
+    bot.run(DISCORD_BOT_TOKEN)
