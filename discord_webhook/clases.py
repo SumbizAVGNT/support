@@ -67,6 +67,10 @@ class ProblemReportModal(Modal):
                     ephemeral=True,
                 )
                 return
+
+            # Defer immediately — ticket creation takes several seconds
+            await interaction.response.defer(ephemeral=True)
+
             response, used_url = await self._create_support_ticket(discord_user_id)
             await self._handle_ticket_creation_response(interaction, response, discord_user_id, used_url)
         except Exception as e:
@@ -127,7 +131,7 @@ class ProblemReportModal(Modal):
 
     async def _handle_ticket_creation_response(self, interaction, response, discord_user_id, used_url):
         if response is None:
-            await interaction.response.send_message("Сервер недоступен. Попробуйте позже.", ephemeral=True)
+            await interaction.followup.send("Сервер недоступен. Попробуйте позже.", ephemeral=True)
             return
 
         status = response.status
@@ -136,22 +140,22 @@ class ProblemReportModal(Modal):
         logger.info("[create_contact] url=%s status=%s body=%s", used_url, status, body_snippet)
 
         if status == 404:
-            await interaction.response.send_message("Ошибка сервера (404). Проверьте адрес сервиса.", ephemeral=True)
+            await interaction.followup.send("Ошибка сервера (404). Проверьте адрес сервиса.", ephemeral=True)
             return
         if not (200 <= status < 300):
-            await interaction.response.send_message(f"Ошибка сервера ({status})", ephemeral=True)
+            await interaction.followup.send(f"Ошибка сервера ({status})", ephemeral=True)
             return
 
         try:
             data = json.loads(body_bytes.decode("utf-8"))
         except Exception:
-            await interaction.response.send_message("Некорректный ответ сервера.", ephemeral=True)
+            await interaction.followup.send("Некорректный ответ сервера.", ephemeral=True)
             return
 
         if data.get("success"):
             conversation_id = data.get("conversation_id")
             mark_message_processed(f"ticket_created_{discord_user_id}")
-            await interaction.response.send_message(f"Запрос #{conversation_id} создан!", ephemeral=True)
+            await interaction.followup.send(f"Запрос #{conversation_id} создан!", ephemeral=True)
 
             embed = nextcord.Embed(
                 title=f"Информация о вашем запросе #{conversation_id}",
@@ -167,16 +171,17 @@ class ProblemReportModal(Modal):
             except Exception as e:
                 logger.error("Failed to send DM with ticket info: %s", e)
         else:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"Ошибка: {data.get('error', 'Неизвестная ошибка')}", ephemeral=True
             )
 
     async def _send_error_response(self, interaction: nextcord.Interaction):
+        msg = "Ошибка соединения с сервером. Повторите попытку позже."
         try:
             if not interaction.response.is_done():
-                await interaction.response.send_message("Ошибка соединения с сервером.", ephemeral=True)
+                await interaction.response.send_message(msg, ephemeral=True)
             else:
-                await interaction.followup.send("Ошибка соединения с сервером.", ephemeral=True)
+                await interaction.followup.send(msg, ephemeral=True)
         except Exception as e:
             logger.error("Failed to send error response: %s", e)
 
