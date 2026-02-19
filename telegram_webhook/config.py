@@ -32,6 +32,7 @@ CHATWOOT_API_TOKEN = os.getenv("CHATWOOT_API_TOKEN", "").strip()
 CW_ACCESS_TOKEN = os.getenv("CHATWOOT_ACCESS_TOKEN", "").strip()
 CW_CLIENT = os.getenv("CHATWOOT_CLIENT", "").strip()
 CW_UID = os.getenv("CHATWOOT_UID", "").strip()
+CW_PASSWORD = os.getenv("CHATWOOT_PASSWORD", os.getenv("CW_PASSWORD", "")).strip()
 
 if not CHATWOOT_BASE_URL:
     raise RuntimeError("CHATWOOT_BASE_URL is required")

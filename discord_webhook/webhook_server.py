@@ -20,7 +20,10 @@ from database import (
     close_session, mark_message_processed, is_message_processed,
     cleanup_old_messages, DATABASE_NAME,
 )
-from utils import send_discord_message, get_chatwoot_headers
+from utils import (
+    send_discord_message, get_chatwoot_headers,
+    _update_tokens_from_headers, refresh_tokens_sync, _token_lock,
+)
 
 # ---------------------------------------------------------------------------- #
 # Logging
@@ -209,6 +212,20 @@ _http_session.headers["User-Agent"] = "discord-chatwoot-bridge/2.0"
 def make_chatwoot_request(method, url, json_data=None):
     headers = get_chatwoot_headers()
     resp = _http_session.request(method, url, json=json_data, headers=headers, timeout=30)
+    _update_tokens_from_headers(dict(resp.headers))
+
+    if resp.status_code == 401:
+        logger.warning("[make_chatwoot_request] got 401, refreshing tokens")
+        with _token_lock:
+            current = get_chatwoot_headers()
+            if current.get("access-token") != headers.get("access-token"):
+                # Already refreshed by another thread
+                resp = _http_session.request(method, url, json=json_data, headers=get_chatwoot_headers(), timeout=30)
+                _update_tokens_from_headers(dict(resp.headers))
+            elif refresh_tokens_sync():
+                resp = _http_session.request(method, url, json=json_data, headers=get_chatwoot_headers(), timeout=30)
+                _update_tokens_from_headers(dict(resp.headers))
+
     resp.raise_for_status()
     try:
         return resp.json()

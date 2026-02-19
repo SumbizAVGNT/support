@@ -3,9 +3,11 @@ import os
 import io
 import mimetypes
 import logging
+import threading
 from typing import Optional, Dict, Any, List
 
 import aiohttp
+import requests as _requests_lib
 import nextcord
 from dotenv import load_dotenv
 from datetime import datetime, timezone
@@ -33,12 +35,119 @@ def _get_connector() -> aiohttp.TCPConnector:
     return _connector
 
 
+# --------------- Mutable token state ---------------
+
+_tokens: Dict[str, str] = {
+    "access-token": os.getenv("CHATWOOT_ACCESS_TOKEN", ""),
+    "client": os.getenv("CHATWOOT_CLIENT", ""),
+    "uid": os.getenv("CHATWOOT_UID", ""),
+}
+_CW_PASSWORD = os.getenv("CHATWOOT_PASSWORD", os.getenv("CW_PASSWORD", "")).strip()
+_CHATWOOT_BASE_URL = os.getenv("CHATWOOT_BASE_URL", "").rstrip("/")
+_token_lock = threading.Lock()
+
+
 def get_chatwoot_headers() -> Dict[str, str]:
     return {
-        "access-token": os.getenv("CHATWOOT_ACCESS_TOKEN", ""),
-        "client": os.getenv("CHATWOOT_CLIENT", ""),
-        "uid": os.getenv("CHATWOOT_UID", ""),
+        "access-token": _tokens["access-token"],
+        "client": _tokens["client"],
+        "uid": _tokens["uid"],
     }
+
+
+def _update_tokens_from_headers(headers: dict) -> None:
+    """Extract rotated Devise tokens from response headers."""
+    new_token = (headers.get("access-token") or "").strip()
+    new_client = (headers.get("client") or "").strip()
+    new_uid = (headers.get("uid") or "").strip()
+    if new_token and new_client and new_uid:
+        changed = (
+            new_token != _tokens["access-token"]
+            or new_client != _tokens["client"]
+            or new_uid != _tokens["uid"]
+        )
+        if changed:
+            _tokens["access-token"] = new_token
+            _tokens["client"] = new_client
+            _tokens["uid"] = new_uid
+            logger.info("Devise tokens rotated from response headers")
+
+
+def refresh_tokens_sync() -> bool:
+    """Re-authenticate with Chatwoot via /auth/sign_in (synchronous)."""
+    email = _tokens["uid"]
+    if not _CW_PASSWORD or not email:
+        logger.error("Cannot re-authenticate: CHATWOOT_PASSWORD or CW_UID not configured")
+        return False
+    try:
+        url = f"{_CHATWOOT_BASE_URL}/auth/sign_in"
+        resp = _requests_lib.post(url, json={"email": email, "password": _CW_PASSWORD}, timeout=30)
+        if resp.status_code == 200:
+            data = resp.json() or {}
+            d = data.get("data") or data
+            new_token = (
+                (resp.headers.get("access-token") or "").strip()
+                or str(d.get("access_token") or "").strip()
+            )
+            new_client = (resp.headers.get("client") or "").strip()
+            new_uid = (
+                (resp.headers.get("uid") or "").strip()
+                or str(d.get("uid") or email).strip()
+            )
+            if new_token:
+                _tokens["access-token"] = new_token
+                if new_client:
+                    _tokens["client"] = new_client
+                if new_uid:
+                    _tokens["uid"] = new_uid
+                logger.info("Re-authenticated with Chatwoot successfully")
+                return True
+            logger.error("sign_in 200 but no access-token in response")
+        else:
+            logger.error("Chatwoot sign_in failed: %s %s", resp.status_code, resp.text[:300])
+    except Exception:
+        logger.exception("Chatwoot sign_in exception")
+    return False
+
+
+async def refresh_tokens_async() -> bool:
+    """Re-authenticate with Chatwoot via /auth/sign_in (async)."""
+    email = _tokens["uid"]
+    if not _CW_PASSWORD or not email:
+        logger.error("Cannot re-authenticate: CHATWOOT_PASSWORD or CW_UID not configured")
+        return False
+    try:
+        url = f"{_CHATWOOT_BASE_URL}/auth/sign_in"
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(connector=_get_connector(), connector_owner=False, timeout=timeout) as session:
+            async with session.post(url, json={"email": email, "password": _CW_PASSWORD}) as resp:
+                if resp.status == 200:
+                    data = await resp.json() or {}
+                    d = data.get("data") or data
+                    new_token = (
+                        (resp.headers.get("access-token") or "").strip()
+                        or str(d.get("access_token") or "").strip()
+                    )
+                    new_client = (resp.headers.get("client") or "").strip()
+                    new_uid = (
+                        (resp.headers.get("uid") or "").strip()
+                        or str(d.get("uid") or email).strip()
+                    )
+                    if new_token:
+                        _tokens["access-token"] = new_token
+                        if new_client:
+                            _tokens["client"] = new_client
+                        if new_uid:
+                            _tokens["uid"] = new_uid
+                        logger.info("Re-authenticated with Chatwoot successfully (async)")
+                        return True
+                    logger.error("sign_in 200 but no access-token in response")
+                else:
+                    body = await resp.text()
+                    logger.error("Chatwoot sign_in failed: %s %s", resp.status, body[:300])
+    except Exception:
+        logger.exception("Chatwoot sign_in exception (async)")
+    return False
 
 
 async def send_chatwoot_message(
@@ -52,14 +161,8 @@ async def send_chatwoot_message(
         f"/api/v1/accounts/{os.getenv('CHATWOOT_ACCOUNT_ID')}/conversations/{conversation_id}/messages"
     )
     try:
-        form = aiohttp.FormData()
-        form.add_field("content", content or "")
-        form.add_field("message_type", message_type)
-        form.add_field("private", "false")
-
-        headers = get_chatwoot_headers()
-        headers.pop("Content-Type", None)
-
+        # Pre-download attachments so we can retry the API call if needed
+        downloaded_files: List[dict] = []
         timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(connector=_get_connector(), connector_owner=False, timeout=timeout) as session:
             if attachments:
@@ -92,17 +195,40 @@ async def send_chatwoot_message(
                             if attempt < 2:
                                 await asyncio.sleep(2 ** attempt)
                     if file_data:
-                        form.add_field(
-                            "attachments[]",
-                            file_data,
-                            filename=filename,
-                            content_type=content_type,
-                        )
+                        downloaded_files.append({"data": file_data, "filename": filename, "content_type": content_type})
 
-            async with session.post(url, data=form, headers=headers) as resp:
+            def _build_form() -> aiohttp.FormData:
+                form = aiohttp.FormData()
+                form.add_field("content", content or "")
+                form.add_field("message_type", message_type)
+                form.add_field("private", "false")
+                for f in downloaded_files:
+                    form.add_field("attachments[]", f["data"], filename=f["filename"], content_type=f["content_type"])
+                return form
+
+            headers = get_chatwoot_headers()
+            headers.pop("Content-Type", None)
+
+            async with session.post(url, data=_build_form(), headers=headers) as resp:
+                _update_tokens_from_headers(dict(resp.headers))
                 if 200 <= resp.status < 300:
                     return True
-                logger.warning("[send_chatwoot_message] failed: status=%s", resp.status)
+                if resp.status != 401:
+                    logger.warning("[send_chatwoot_message] failed: status=%s", resp.status)
+                    return False
+
+            # Got 401 — try to refresh tokens and retry
+            logger.warning("[send_chatwoot_message] got 401, refreshing tokens")
+            if not await refresh_tokens_async():
+                return False
+
+            headers = get_chatwoot_headers()
+            headers.pop("Content-Type", None)
+            async with session.post(url, data=_build_form(), headers=headers) as resp:
+                _update_tokens_from_headers(dict(resp.headers))
+                if 200 <= resp.status < 300:
+                    return True
+                logger.warning("[send_chatwoot_message] retry failed: status=%s", resp.status)
                 return False
     except Exception as e:
         logger.error("[send_chatwoot_message] exception: %s", e)
